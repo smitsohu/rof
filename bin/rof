@@ -1,0 +1,182 @@
+#!/bin/bash
+
+# Copyright (C) 2023 smitsohu smitsohu@gmail.com
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+set -euo pipefail
+
+VERSION="0.1.0"
+NAME=$(basename "$0")
+CONF_DIR="/etc/$NAME.d"
+
+readonly VERSION
+readonly NAME
+readonly CONF_DIR
+
+
+usage () {
+	cat <<-usageText >&2
+	$NAME version $VERSION
+
+	Usage:
+	 $NAME [options] application [application args|options]
+
+	Modify read-only restrictions per application.
+
+	Options:
+	 -r, --readonly PATH  - remount PATH read-only
+	 -w, --readwrite PATH - remount PATH read-write
+	 -f, --file FILE      - load directives from FILE;
+	                        if path is relative
+	                        FILE is searched in $CONF_DIR
+	 -h, --help           - display this help and exit
+
+	Example:
+	 setting a password when /etc is mounted read-only:
+	 sudo $NAME -w /etc passwd
+	usageText
+
+	exit 1
+}
+
+fatal () {
+	echo "[$NAME]: error: $1" >&2
+	exit 1
+}
+
+do_remount () {
+	local mount
+	local target
+	local opts
+
+	[[ -e "$1" ]] || fatal "cannot find mount target $1"
+	mountpoint -q "$1" || mount -n -R "$1" "$1" || fatal "cannot remount $1"
+
+	while read -r mount
+	do
+		target=$(cut -d ' ' -f 1 <<< "$mount")
+		opts=$(cut -d ' ' -f 2 <<< "$mount")
+
+		# nothing to do
+		[[ "$2" == "ro" && "$opts" =~ ^ro ]] && continue
+		[[ "$2" == "rw" && "$opts" =~ ^rw ]] && continue
+
+		# kernel/findmnt escapes backslash, space, tab and newline characters
+		# expand them
+		printf -v target "%b" "$target"
+
+		# need to clear ro bit from superblock also;
+		# that should be ok because the mount point
+		# is still ro in the parent namespace
+		if [[ "$2" == "rw" ]]
+		then
+			mount -n -o "remount,rw" "$target" || fatal "cannot remount $target"
+			continue
+		fi
+
+		# setting ro on the superblock would make
+		# the filesystem ro system wide and
+		# fail most of the time anyway (EBUSY),
+		# so modify mount point only
+		mount -n -o "remount,bind,ro" "$target" || fatal "cannot remount $target"
+	done <<< "$(findmnt -R -r -o TARGET,OPTIONS -n "$1")"
+}
+
+remount_rw () {  # remount $1 including all submounts read-write
+	do_remount "$1" "rw"
+}
+
+remount_ro () {  # remount $1 including all submounts read-only
+	do_remount "$1" "ro"
+}
+
+conffile_path () {
+	if [[ "$1" == /* ]]
+	then
+		printf "%s" "$1"
+	else
+		printf "%s/%s" "$CONF_DIR" "$1"
+	fi
+}
+
+conffile_apply () {
+	local -i lineno
+	local line
+
+	[[ -f "$1" ]] || fatal "cannot find file $1"
+
+	lineno=0
+	while read -r line
+	do
+		(( ++lineno ))
+		[[ "$line" =~ ^[[:blank:]]*$ ]] && continue
+		[[ "$line" =~ ^[[:blank:]]*# ]] && continue
+		[[ "$line" =~ ^[[:blank:]]*(r|readonly)[[:blank:]]+(/.*)$ ]] && remount_ro "${BASH_REMATCH[2]}" && continue
+		[[ "$line" =~ ^[[:blank:]]*(w|readwrite)[[:blank:]]+(/.*)$ ]] && remount_rw "${BASH_REMATCH[2]}" && continue
+		fatal "invalid line: $1: line $lineno"
+	done < "$1"
+}
+
+main () {
+	# <SNIP>
+	[[ "$#" -eq 0 || "$1" == "-h" || "$1" == "--help" ]] && usage
+
+	# remove this snippet and pass the modified script to unshare
+	# propagation type of the new mount namespace will be "private"
+	local oldscript
+	local newscript
+
+	oldscript=$(<"$0")
+	newscript=$(sed '/^[[:blank:]]*# <SNIP>$/,/^[[:blank:]]*# <SNAP>$/d' <<< "$oldscript")
+
+	# shellcheck disable=SC2093
+	exec unshare -m /bin/bash -c "$newscript" "$0" "$@"
+	# <SNAP>
+
+	while [[ "$#" -gt 0 ]]
+	do
+		case $1 in
+			-r|--readonly)
+				shift
+				[[ "$#" -gt 0 ]] || usage
+				remount_ro "$1"
+				shift
+				;;
+			-w|--readwrite)
+				shift
+				[[ "$#" -gt 0 ]] || usage
+				remount_rw "$1"
+				shift
+				;;
+			-f|--file)
+				shift
+				[[ "$#" -gt 0 ]] || usage
+				conffile_apply "$(conffile_path "$1")"
+				shift
+				;;
+			-*)
+				usage
+				;;
+			*)
+				exec "$@"
+				;;
+		esac
+	done
+
+	usage
+}
+
+main "$@"
