@@ -1,8 +1,7 @@
 # rof
+rof is a small proof-of-concept, to showcase how administrative tools that necessitate write permission can be used seamlessly in a read-only root filesystem.
 
-rof is a small proof-of-concept, designed to demonstrate the seamless execution of administrative tasks that necessitate write access within a read-only root filesystem.
-
-Unlike previous approaches, rof allows the read-only restriction to be lifted only as necessary and only for the wrapped application, while all other processes in the system continue to operate within the read-only environment. This approach enhances security and eliminates [potential][2] [issues][1] that arise when read-write filesystems are remounted back as read-only.
+Unlike previous approaches, rof allows the read-only restriction to be lifted only as necessary and only for the wrapped application, while all other processes in the system continue to operate within a read-only environment. This approach enhances security and eliminates [potential][2] [issues][1] that arise when read-write filesystems are remounted back as read-only.
 
 Notably, rof enables traditional package managers like `apt` to function when core system partitions like /boot or /usr are in a read-only state.
 
@@ -25,16 +24,11 @@ Options:
 ```
 
 ### Example: system update in Debian/Ubuntu
-
-In order to update your system, just prefix `apt` with `rof` and specify which directories should be writable and which directories should be read-only:
+To update a Debian/Ubuntu system, prefix `apt` with `rof` and specify which directories should be writable and which directories should be read-only:
 
 `sudo rof --readwrite /boot --readwrite /usr --readonly /usr/local apt upgrade`
 
 ## Installation
 Just download the script and make it executable:
 
-https://raw.githubusercontent.com/smitsohu/rof/main/bin/rof
-
-## What does rof mean?
-
-rof is the read-only fairy.
+`curl -o rof https://raw.githubusercontent.com/smitsohu/rof/main/bin/rof`
