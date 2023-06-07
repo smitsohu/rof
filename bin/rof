@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 NAME=$(basename "$0")
 CONF_DIR="/etc/$NAME.d"
 
@@ -37,12 +37,16 @@ usage () {
 	Modify read-only restrictions per application.
 
 	Options:
-	 -r, --readonly PATH  - remount PATH read-only
-	 -w, --readwrite PATH - remount PATH read-write
-	 -f, --file FILE      - load directives from FILE;
-	                        if path is relative
-	                        FILE is searched in $CONF_DIR
-	 -h, --help           - display this help and exit
+	 -r,  --readonly PATH       - remount PATH read-only
+	 -ra, --readonly-all PATH   - remount PATH read-only,
+	                              including all submounts
+	 -w,  --readwrite PATH      - remount PATH read-write
+	 -wa, --readwrite-all PATH  - remount PATH read-write,
+	                              including all submounts
+	 -f,  --file FILE           - load directives from FILE;
+	                              if path is relative
+	                              search FILE in $CONF_DIR
+	 -h,  --help                - display this help and exit
 
 	Example:
 	 setting a password when /etc is mounted read-only:
@@ -57,50 +61,53 @@ fatal () {
 	exit 1
 }
 
-do_remount () {
+create_mountpoint () {
+	[[ -e "$1" ]] || fatal "cannot find $1"
+	mountpoint -q "$1" || mount -n -R "$1" "$1" || fatal "cannot remount $1"
+}
+
+remount_ro () {
+	# setting ro in superblock would make filesystem ro system wide
+	# and fail most of the time anyway (EBUSY)
+	# so modify mount point only
+	create_mountpoint "$1"
+	mount -n -o "remount,bind,ro" "$1" || fatal "cannot remount $1"
+}
+
+remount_rw () {
+	# need to clear ro in superblock as well; that should be ok though
+	# because mount point is still ro in the parent namespace
+	create_mountpoint "$1"
+	mount -n -o "remount,rw" "$1" || fatal "cannot remount $1"
+}
+
+do_remount_all () {
 	local mount
 	local target
-	local opts
+	local options
 
-	[[ -e "$1" ]] || fatal "cannot find mount target $1"
-	mountpoint -q "$1" || mount -n -R "$1" "$1" || fatal "cannot remount $1"
+	create_mountpoint "$1"
 
 	while read -r mount
 	do
 		target=$(cut -d ' ' -f 1 <<< "$mount")
-		opts=$(cut -d ' ' -f 2 <<< "$mount")
-
-		# nothing to do
-		[[ "$2" == "ro" && "$opts" =~ ^ro ]] && continue
-		[[ "$2" == "rw" && "$opts" =~ ^rw ]] && continue
+		options=$(cut -d ' ' -f 2 <<< "$mount")
 
 		# kernel/findmnt escapes backslash, space, tab and newline characters
 		# expand them
 		printf -v target "%b" "$target"
 
-		# need to clear ro bit from superblock also;
-		# that should be ok because the mount point
-		# is still ro in the parent namespace
-		if [[ "$2" == "rw" ]]
-		then
-			mount -n -o "remount,rw" "$target" || fatal "cannot remount $target"
-			continue
-		fi
-
-		# setting ro on the superblock would make
-		# the filesystem ro system wide and
-		# fail most of the time anyway (EBUSY),
-		# so modify mount point only
-		mount -n -o "remount,bind,ro" "$target" || fatal "cannot remount $target"
+		[[ "$2" == "ro" && "$options" =~ ^rw ]] && remount_ro "$target" && continue
+		[[ "$2" == "rw" && "$options" =~ ^ro ]] && remount_rw "$target"
 	done <<< "$(findmnt -R -r -o TARGET,OPTIONS -n "$1")"
 }
 
-remount_rw () {  # remount $1 including all submounts read-write
-	do_remount "$1" "rw"
+remount_ro_all () {  # remount $1 including all submounts read-only
+	do_remount_all "$1" "ro"
 }
 
-remount_ro () {  # remount $1 including all submounts read-only
-	do_remount "$1" "ro"
+remount_rw_all () {  # remount $1 including all submounts read-write
+	do_remount_all "$1" "rw"
 }
 
 conffile_path () {
@@ -125,7 +132,9 @@ conffile_apply () {
 		[[ "$line" =~ ^[[:blank:]]*$ ]] && continue
 		[[ "$line" =~ ^[[:blank:]]*# ]] && continue
 		[[ "$line" =~ ^[[:blank:]]*(r|readonly)[[:blank:]]+(/.*)$ ]] && remount_ro "${BASH_REMATCH[2]}" && continue
+		[[ "$line" =~ ^[[:blank:]]*(ra|readonly-all)[[:blank:]]+(/.*)$ ]] && remount_ro_all "${BASH_REMATCH[2]}" && continue
 		[[ "$line" =~ ^[[:blank:]]*(w|readwrite)[[:blank:]]+(/.*)$ ]] && remount_rw "${BASH_REMATCH[2]}" && continue
+		[[ "$line" =~ ^[[:blank:]]*(wa|readwrite-all)[[:blank:]]+(/.*)$ ]] && remount_rw_all "${BASH_REMATCH[2]}" && continue
 		fatal "invalid line: $1: line $lineno"
 	done < "$1"
 }
@@ -155,10 +164,22 @@ main () {
 				remount_ro "$1"
 				shift
 				;;
+			-ra|--readonly-all)
+				shift
+				[[ "$#" -gt 0 ]] || usage
+				remount_ro_all "$1"
+				shift
+				;;
 			-w|--readwrite)
 				shift
 				[[ "$#" -gt 0 ]] || usage
 				remount_rw "$1"
+				shift
+				;;
+			-wa|--readwrite-all)
+				shift
+				[[ "$#" -gt 0 ]] || usage
+				remount_rw_all "$1"
 				shift
 				;;
 			-f|--file)

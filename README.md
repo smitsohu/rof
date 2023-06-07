@@ -15,12 +15,16 @@ rof [options] application [application arguments|options]
 Modify read-only restrictions per application.
 
 Options:
- -r, --readonly PATH  - remount PATH read-only
- -w, --readwrite PATH - remount PATH read-write
- -f, --file FILE      - load directives from FILE;
-                        if path is relative
-                        FILE is searched in /etc/rof.d
- -h, --help           - display this help and exit
+ -r,  --readonly PATH      - remount PATH read-only
+ -ra, --readonly-all PATH  - remount PATH read-only,
+                             including all submounts
+ -w,  --readwrite PATH     - remount PATH read-write
+ -wa, --readwrite-all PATH - remount PATH read-write,
+                             including all submounts
+ -f,  --file FILE          - load directives from FILE;
+                             if path is relative
+                             search FILE in /etc/rof.d
+ -h, --help                - display this help and exit
 ```
 
 ### Example: system update in Debian/Ubuntu
