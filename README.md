@@ -1,7 +1,7 @@
 # rofairy
 rofairy is a small proof-of-concept, to showcase how administrative tools that necessitate write permission can be used seamlessly in a read-only root filesystem.
 
-Unlike previous approaches, rofairy allows the read-only restriction to be lifted only as necessary and only for the wrapped application, while all other processes in the system continue to operate within a read-only environment. In particular, this approach resolves [potential][2] [issues][1] that arise when read-write filesystems are remounted back as read-only.
+Unlike previous approaches, rofairy allows the read-only restriction to be lifted only as necessary and only for the wrapped application, while all other processes in the system continue to operate within a read-only environment. This approach circumvents [potential][2] [issues][1] that arise when read-write filesystems are remounted back as read-only.
 
 Notably, rofairy enables traditional package managers like `apt` to function when core system partitions like /boot or /usr are in a read-only state.
 
@@ -36,8 +36,3 @@ To update a Debian/Ubuntu system, prefix `apt` with `rofairy` and specify which 
 Just download the script and make it executable:
 
 `curl -o rofairy https://raw.githubusercontent.com/smitsohu/rofairy/main/bin/rofairy`
-
-## Limitations
-Please note that rofairy modifies the behavior of read-only partitions in a subtle way.
-
-Prior to using rofairy, attempts to remount read-only partitions as writable typically fail as long as `bind` is included in the mount options. However, after a single application of rofairy using the `--readwrite` or `--readwrite-all` option, such remount attempts generally succeed in creating writable mount points.
