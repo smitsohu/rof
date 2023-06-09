@@ -16,7 +16,7 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-set -euo pipefail
+set -o pipefail
 
 VERSION="0.2.0"
 NAME=$(basename "$0")
@@ -25,6 +25,8 @@ CONF_DIR="/etc/$NAME.d"
 readonly VERSION
 readonly NAME
 readonly CONF_DIR
+
+mount_list_orig=()
 
 
 usage () {
@@ -61,24 +63,49 @@ fatal () {
 	exit 1
 }
 
-create_mountpoint () {
-	[[ -e "$1" ]] || fatal "cannot find $1"
+make_mountpoint () {
+	[[ -e "$1" ]] || fatal "cannot stat $1"
 	mountpoint -q "$1" || mount -n -R "$1" "$1" || fatal "cannot remount $1"
+}
+
+check_ro () {
+	# do verify that all mount points of this filesystem
+	# are ro in the parent namespace
+	local dev_check
+	local mount
+	local target
+	local dev
+	local vfsopts
+	local fsopts
+
+	dev_check=$(findmnt -r -o MAJ:MIN -n -T "$1")
+
+	for mount in "${mount_list_orig[@]}"
+	do
+		read -r target dev vfsopts fsopts <<< "$mount"
+
+		[[ "$dev_check" == "$dev" ]] && \
+		[[ "$vfsopts" =~ ^rw && "$fsopts" =~ ^ro ]] && \
+		fatal "refusing to remount $1: run first: mount -o remount,ro ${target@E}"
+	done
+}
+
+remount_rw () {
+	# need to clear ro in superblock as well; that should be ok though
+	# as long as all mount points of this filesystem
+	# are set to ro in parent namespace
+	make_mountpoint "$1"
+	check_ro "$1"
+
+	mount -n -o "remount,rw" "$1" || fatal "cannot remount $1"
 }
 
 remount_ro () {
 	# setting ro in superblock would make filesystem ro system wide
 	# and fail most of the time anyway (EBUSY)
 	# so modify mount point only
-	create_mountpoint "$1"
+	make_mountpoint "$1"
 	mount -n -o "remount,bind,ro" "$1" || fatal "cannot remount $1"
-}
-
-remount_rw () {
-	# need to clear ro in superblock as well; that should be ok though
-	# because mount point is still ro in the parent namespace
-	create_mountpoint "$1"
-	mount -n -o "remount,rw" "$1" || fatal "cannot remount $1"
 }
 
 do_remount_all () {
@@ -86,19 +113,14 @@ do_remount_all () {
 	local target
 	local options
 
-	create_mountpoint "$1"
+	make_mountpoint "$1"
 
 	while read -r mount
 	do
-		target=$(cut -d ' ' -f 1 <<< "$mount")
-		options=$(cut -d ' ' -f 2 <<< "$mount")
+		read -r target options <<< "$mount"
 
-		# kernel/findmnt escapes backslash, space, tab and newline characters
-		# expand them
-		printf -v target "%b" "$target"
-
-		[[ "$2" == "ro" && "$options" =~ ^rw ]] && remount_ro "$target" && continue
-		[[ "$2" == "rw" && "$options" =~ ^ro ]] && remount_rw "$target"
+		[[ "$2" == "ro" && "$options" =~ ^rw ]] && remount_ro "${target@E}" && continue
+		[[ "$2" == "rw" && "$options" =~ ^ro ]] && remount_rw "${target@E}"
 	done <<< "$(findmnt -R -r -o TARGET,OPTIONS -n "$1")"
 }
 
@@ -123,7 +145,7 @@ conffile_apply () {
 	local -i lineno
 	local line
 
-	[[ -f "$1" ]] || fatal "cannot find file $1"
+	[[ -f "$1" ]] || fatal "cannot find $1"
 
 	lineno=0
 	while read -r line
@@ -154,6 +176,9 @@ main () {
 	# shellcheck disable=SC2093
 	exec unshare -m /bin/bash -c "$newscript" "$0" "$@"
 	# <SNAP>
+
+	readarray mount_list_orig <<< "$(findmnt -r -o TARGET,MAJ:MIN,VFS-OPTIONS,FS-OPTIONS -n)"
+	readonly mount_list_orig
 
 	while [[ "$#" -gt 0 ]]
 	do
