@@ -79,6 +79,7 @@ check_ro () {
 	local fsopts
 
 	dev_in=$(findmnt -r -o MAJ:MIN -n -T "$1")
+	readonly dev_in
 
 	for mount in "${mount_list_orig[@]}"
 	do
