@@ -84,7 +84,7 @@ check_ro () {
 	do
 		read -r target dev vfsopts fsopts <<< "$mount"
 
-		[[ "$dev_check" == "$dev" ]] && \
+		[[ "$dev_check" == "$dev" ]] &&                \
 		[[ "$vfsopts" =~ ^rw && "$fsopts" =~ ^ro ]] && \
 		fatal "refusing to remount $1: run first: mount -o remount,ro ${target@E}"
 	done
