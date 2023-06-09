@@ -71,20 +71,20 @@ make_mountpoint () {
 check_ro () {
 	# do verify that all mount points of this filesystem
 	# are ro in the parent namespace
-	local dev_check
+	local dev_in
 	local mount
 	local target
 	local dev
 	local vfsopts
 	local fsopts
 
-	dev_check=$(findmnt -r -o MAJ:MIN -n -T "$1")
+	dev_in=$(findmnt -r -o MAJ:MIN -n -T "$1")
 
 	for mount in "${mount_list_orig[@]}"
 	do
 		read -r target dev vfsopts fsopts <<< "$mount"
 
-		[[ "$dev_check" == "$dev" ]] &&                \
+		[[ "$dev_in" == "$dev" ]] &&                   \
 		[[ "$vfsopts" =~ ^rw && "$fsopts" =~ ^ro ]] && \
 		fatal "refusing to remount $1: run first: mount -o remount,ro ${target@E}"
 	done
@@ -176,6 +176,7 @@ main () {
 	# shellcheck disable=SC2093
 	exec unshare -m /bin/bash -c "$newscript" "$0" "$@"
 	# <SNAP>
+
 
 	readarray mount_list_orig <<< "$(findmnt -r -o TARGET,MAJ:MIN,VFS-OPTIONS,FS-OPTIONS -n)"
 	readonly mount_list_orig
