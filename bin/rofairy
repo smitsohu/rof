@@ -16,17 +16,18 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-set -o pipefail
-
-VERSION="0.2.0"
-NAME=$(basename "$0")
+VERSION="0.3.0"
+NAME="rofairy"
 CONF_DIR="/etc/$NAME.d"
 
 readonly VERSION
 readonly NAME
 readonly CONF_DIR
 
-mount_list_orig=()
+declare -a MOUNT_LIST_ORIG
+declare -A SYNC_FS
+
+SYNC_SET=0
 
 
 usage () {
@@ -49,6 +50,9 @@ usage () {
 	                              if path is relative
 	                              search FILE in $CONF_DIR
 	 -h,  --help                - display this help and exit
+	 -s,  --sync                - when finished, sync all
+	                              filesystems that were
+	                              remounted read-write
 
 	Example:
 	 setting a password when /etc is mounted read-only:
@@ -63,40 +67,58 @@ fatal () {
 	exit 1
 }
 
+warning () {
+	echo "[$NAME]: warning: $1" >&2
+}
+
+do_sync () {
+	local ret
+
+	ret=0
+	for fs in "${!SYNC_FS[@]}"
+	do
+		sync -f "${SYNC_FS["$fs"]}" || { warning "cannot sync filesystem: $fs"; ret=2; }
+	done
+
+	return "$ret"
+}
+
 make_mountpoint () {
 	[[ -e "$1" ]] || fatal "cannot stat $1"
 	mountpoint -q "$1" || mount -n -R "$1" "$1" || fatal "cannot remount $1"
 }
 
-check_ro () {
-	# do verify that all mount points of this filesystem
-	# are ro in the parent namespace
-	local dev_in
+verify_ro () {
 	local mount
 	local target
 	local dev
 	local vfsopts
 	local fsopts
 
-	dev_in=$(findmnt -r -o MAJ:MIN -n -T "$1")
-	readonly dev_in
-
-	for mount in "${mount_list_orig[@]}"
+	for mount in "${MOUNT_LIST_ORIG[@]}"
 	do
 		read -r target dev vfsopts fsopts <<< "$mount"
 
-		[[ "$dev_in" == "$dev" ]] &&                   \
+		[[ "$2" == "$dev" ]] &&                        \
 		[[ "$vfsopts" =~ ^rw && "$fsopts" =~ ^ro ]] && \
-		fatal "refusing to remount $1: run first: mount -o remount,ro ${target@E}"
+		fatal "refusing to remount $1: run first: mount -o remount,bind,ro ${target@E}"
 	done
 }
 
 remount_rw () {
 	# need to clear ro in superblock as well; that should be ok though
-	# as long as all mount points of this filesystem
-	# are set to ro in parent namespace
+	# as long as all mount points of this filesystem are set to ro
+	# in the parent namespace
+	local dev
+
 	make_mountpoint "$1"
-	check_ro "$1"
+	dev=$(findmnt -r -o MAJ:MIN -n -M "$1")
+
+	# verify mount points are ro in parent namespace
+	verify_ro "$1" "$dev"
+
+	# need one path for each filesystem
+	SYNC_FS["$dev"]="$1"
 
 	mount -n -o "remount,rw" "$1" || fatal "cannot remount $1"
 }
@@ -158,19 +180,21 @@ conffile_apply () {
 		[[ "$line" =~ ^[[:blank:]]*(ra|readonly-all)[[:blank:]]+(/.*)$ ]] && remount_ro_all "${BASH_REMATCH[2]}" && continue
 		[[ "$line" =~ ^[[:blank:]]*(w|readwrite)[[:blank:]]+(/.*)$ ]] && remount_rw "${BASH_REMATCH[2]}" && continue
 		[[ "$line" =~ ^[[:blank:]]*(wa|readwrite-all)[[:blank:]]+(/.*)$ ]] && remount_rw_all "${BASH_REMATCH[2]}" && continue
+		[[ "$line" =~ ^[[:blank:]]*(s|sync)[[:blank:]]*$ ]] && SYNC_SET=1 && continue
 		fatal "invalid line: $1: line $lineno"
 	done < "$1"
 }
 
 main () {
+	local oldscript
+	local newscript
+	local ret
+
 	# <SNIP>
 	[[ "$#" -eq 0 || "$1" == "-h" || "$1" == "--help" ]] && usage
 
 	# remove this snippet and pass the modified script to unshare
 	# propagation type of the new mount namespace will be "private"
-	local oldscript
-	local newscript
-
 	oldscript=$(<"$0")
 	newscript=$(sed '/^[[:blank:]]*# <SNIP>$/,/^[[:blank:]]*# <SNAP>$/d' <<< "$oldscript")
 
@@ -178,9 +202,8 @@ main () {
 	exec unshare -m /bin/bash -c "$newscript" "$0" "$@"
 	# <SNAP>
 
-
-	readarray mount_list_orig <<< "$(findmnt -r -o TARGET,MAJ:MIN,VFS-OPTIONS,FS-OPTIONS -n)"
-	readonly mount_list_orig
+	readarray MOUNT_LIST_ORIG <<< "$(findmnt -r -o TARGET,MAJ:MIN,VFS-OPTIONS,FS-OPTIONS -n)"
+	readonly MOUNT_LIST_ORIG
 
 	while [[ "$#" -gt 0 ]]
 	do
@@ -215,11 +238,19 @@ main () {
 				conffile_apply "$(conffile_path "$1")"
 				shift
 				;;
+			-s|--sync)
+				SYNC_SET=1
+				shift
+				;;
 			-*)
 				usage
 				;;
 			*)
-				exec "$@"
+				[[ "$SYNC_SET" -ne 1 ]] && exec "$@"
+				"$@"
+				ret="$?"
+				do_sync || exit "$?"
+				exit "$ret"
 				;;
 		esac
 	done
