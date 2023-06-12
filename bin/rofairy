@@ -16,6 +16,8 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+set -eu
+
 VERSION="0.3.0"
 NAME="rofairy"
 CONF_DIR="/etc/$NAME.d"
@@ -25,9 +27,9 @@ readonly NAME
 readonly CONF_DIR
 
 declare -a MOUNT_LIST_ORIG
-declare -A SYNC_FS
+declare -A SYNCFS_DICT
 
-SYNC_SET=0
+syncfs=0
 
 
 usage () {
@@ -63,23 +65,22 @@ usage () {
 }
 
 fatal () {
-	echo "[$NAME]: error: $1" >&2
+	echo "$NAME: error: $1" >&2
 	exit 1
 }
 
 warning () {
-	echo "[$NAME]: warning: $1" >&2
+	echo "$NAME: warning: $1" >&2
 }
 
 do_sync () {
 	local ret
 
 	ret=0
-	for fs in "${!SYNC_FS[@]}"
+	for fs in "${!SYNCFS_DICT[@]}"
 	do
-		sync -f "${SYNC_FS["$fs"]}" || { warning "cannot sync filesystem: $fs"; ret=2; }
+		sync -f "${SYNCFS_DICT["$fs"]}" || { warning "cannot sync filesystem: $fs"; ret=2; }
 	done
-
 	return "$ret"
 }
 
@@ -103,6 +104,7 @@ verify_ro () {
 		[[ "$vfsopts" =~ ^rw && "$fsopts" =~ ^ro ]] && \
 		fatal "refusing to remount $1: run first: mount -o remount,bind,ro ${target@E}"
 	done
+	return 0
 }
 
 remount_rw () {
@@ -118,7 +120,7 @@ remount_rw () {
 	verify_ro "$1" "$dev"
 
 	# need one path for each filesystem
-	SYNC_FS["$dev"]="$1"
+	SYNCFS_DICT["$dev"]="$1"
 
 	mount -n -o "remount,rw" "$1" || fatal "cannot remount $1"
 }
@@ -144,7 +146,8 @@ do_remount_all () {
 
 		[[ "$2" == "ro" && "$options" =~ ^rw ]] && remount_ro "${target@E}" && continue
 		[[ "$2" == "rw" && "$options" =~ ^ro ]] && remount_rw "${target@E}"
-	done <<< "$(findmnt -R -r -o TARGET,OPTIONS -n "$1")"
+	done <<< "$(findmnt -r -o TARGET,OPTIONS -n -R "$1")"
+	return 0
 }
 
 remount_ro_all () {  # remount $1 including all submounts read-only
@@ -180,7 +183,7 @@ conffile_apply () {
 		[[ "$line" =~ ^[[:blank:]]*(ra|readonly-all)[[:blank:]]+(/.*)$ ]] && remount_ro_all "${BASH_REMATCH[2]}" && continue
 		[[ "$line" =~ ^[[:blank:]]*(w|readwrite)[[:blank:]]+(/.*)$ ]] && remount_rw "${BASH_REMATCH[2]}" && continue
 		[[ "$line" =~ ^[[:blank:]]*(wa|readwrite-all)[[:blank:]]+(/.*)$ ]] && remount_rw_all "${BASH_REMATCH[2]}" && continue
-		[[ "$line" =~ ^[[:blank:]]*(s|sync)[[:blank:]]*$ ]] && SYNC_SET=1 && continue
+		[[ "$line" =~ ^[[:blank:]]*(s|sync)[[:blank:]]*$ ]] && syncfs=1 && continue
 		fatal "invalid line: $1: line $lineno"
 	done < "$1"
 }
@@ -239,14 +242,14 @@ main () {
 				shift
 				;;
 			-s|--sync)
-				SYNC_SET=1
+				syncfs=1
 				shift
 				;;
 			-*)
 				usage
 				;;
 			*)
-				[[ "$SYNC_SET" -ne 1 ]] && exec "$@"
+				[[ "$syncfs" -ne 1 ]] && exec "$@"
 				"$@"
 				ret="$?"
 				do_sync || exit "$?"
