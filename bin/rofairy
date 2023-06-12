@@ -126,7 +126,6 @@ remount_rw () {
 
 remount_ro () {
 	# setting ro in superblock would make filesystem ro system wide
-	# and fail most of the time anyway (EBUSY)
 	# so modify mount point only
 	make_mountpoint "$1"
 	mount -n -o "remount,bind,ro" "$1" || fatal "cannot remount $1"
