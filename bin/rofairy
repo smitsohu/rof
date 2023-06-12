@@ -52,9 +52,8 @@ usage () {
 	                              if path is relative
 	                              search FILE in $CONF_DIR
 	 -h,  --help                - display this help and exit
-	 -s,  --sync                - when finished, sync all
-	                              filesystems that were
-	                              remounted read-write
+	 -s,  --sync                - sync all filesystems that
+	                              were remounted read-write
 
 	Example:
 	 setting a password when /etc is mounted read-only:
@@ -102,7 +101,7 @@ verify_ro () {
 
 		[[ "$2" == "$dev" ]] &&                        \
 		[[ "$vfsopts" =~ ^rw && "$fsopts" =~ ^ro ]] && \
-		fatal "refusing to remount $1: run first: mount -o remount,bind,ro ${target@E}"
+		fatal "not remounting $1: run first: mount -o remount,bind,ro ${target@E}"
 	done
 	return 0
 }
