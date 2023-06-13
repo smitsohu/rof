@@ -43,4 +43,4 @@ In Linux, filesystems are equipped with two read-only attributes: one associated
 To enable write access to a file, both the mount point and superblock read-only flags must be unset. rofairy clears the superblock flag as needed and does not restore it. This way read-only access is controlled solely at the mount point level, allowing files to be read-only in the current mount namespace while becoming writable in a child mount namespace.
 
 ### But I want to restore the read-only superblock
-Easy. Run `sudo mount -o remount,ro <any filesystem mountpoint>` after you are done. Maybe there should be a script to do this automatically based on rofairy configuration files.
+Easy. Run `sudo mount -o remount,ro <any filesystem mountpoint>` after you are done.

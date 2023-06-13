@@ -1,0 +1,87 @@
+#!/bin/bash
+
+# Copyright (C) 2023 smitsohu smitsohu@gmail.com
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+set -eu
+
+VERSION="0.1.0"
+NAME_MAIN="rofairy"
+NAME="$NAME_MAIN.pre"
+
+readonly VERSION
+readonly NAME_MAIN
+readonly NAME
+
+
+usage () {
+	cat <<-usageText >&2
+	$NAME version $VERSION
+
+	Usage:
+	 $NAME
+
+	$NAME_MAIN terminates if it would
+	create writable locations in the
+	original mount namespace.
+
+	This tool remounts mount points to
+	prevent subsequent $NAME_MAIN runs
+	from failing out of this reason.
+	usageText
+
+	exit 1
+}
+
+info () {
+	echo "$NAME: info: $1" >&2
+}
+
+warning () {
+	echo "$NAME: warning: $1" >&2
+}
+
+fix_mounts () {
+	# find writable mount points with ro superblock
+	# remount all these mount points ro
+	local mount
+	local target
+	local vfsopts
+	local fsopts
+
+	while read -r mount
+	do
+		read -r target vfsopts fsopts <<< "$mount"
+		target=${target@E}
+
+		[[ "$vfsopts" =~ ^ro || "$fsopts" =~ ^rw ]] && continue
+
+		info "fixing $target"
+		mount -o remount,bind,ro "$target" || warning "cannot remount $target"
+	done <<< "$(findmnt -r -o TARGET,VFS-OPTIONS,FS-OPTIONS -n)"
+}
+
+main () {
+	[[ "$#" -ne 0 ]] && usage
+
+	fix_mounts
+
+	# rofairy knows when to fail
+	# this is always successful
+	exit 0
+}
+
+main "$@"
