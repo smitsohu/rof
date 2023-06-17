@@ -48,7 +48,7 @@ usage () {
 	 -w,  --readwrite PATH      - remount PATH read-write
 	 -wa, --readwrite-all PATH  - remount PATH read-write,
 	                              including all submounts
-	 -f,  --file FILE           - load directives from FILE;
+	 -f,  --file FILE           - load instructions from FILE;
 	                              if path is relative
 	                              search FILE in $CONF_DIR
 	 -h,  --help                - display this help and exit

@@ -1,10 +1,5 @@
 # rofairy
-rofairy is a small proof-of-concept tool, to showcase how administrative tools that require write permission can be used seamlessly in a read-only root filesystem. Its primary purpose is to enable traditional package managers like `apt` to function when system directories like /boot or /usr are in a read-only state.
-
-Unlike previous approaches, rofairy allows the read-only restriction to be lifted only as necessary and only for the wrapped application, while all other processes in the system continue to operate within a read-only environment. This approach circumvents [potential][2] [issues][1] that arise when read-write filesystems are remounted back as read-only.
-
-[1]: https://archive.is/49UnK
-[2]: https://archive.is/0g5RJ
+rofairy is a small proof-of-concept tool, to showcase how administrative tools that require write permission can be used seamlessly in a read-only root filesystem. Its primary purpose is to enable traditional package managers like `apt` to function when system directories like `/boot` or `/usr` are in a read-only state.
 
 ## Usage
 ```
@@ -19,7 +14,7 @@ Options:
  -w,  --readwrite PATH     - remount PATH read-write
  -wa, --readwrite-all PATH - remount PATH read-write,
                              including all submounts
- -f,  --file FILE          - load directives from FILE;
+ -f,  --file FILE          - load instructions from FILE;
                              if path is relative
                              search FILE in /etc/rofairy.d
  -h,  --help               - display this help and exit
@@ -27,15 +22,32 @@ Options:
                              were remounted read-write
 ```
 
-### Example: system update in Debian/Ubuntu
-Prefix `apt` with `rofairy` and specify which directories should be writable and which directories should be read-only:
+Just prefix your application with `rofairy` and specify which directories should be writable and which directories should be read-only.
 
-`sudo rofairy --readwrite /boot --readwrite /usr --readonly /usr/local apt upgrade`
+### Example: Package management in Debian/Ubuntu
+Create an executable script `/usr/local/bin/rofairy.dpkg` that wraps `dpkg`:
+
+```
+#!/bin/sh
+exec /usr/local/bin/rofairy -wa /boot -wa /etc -wa /opt -wa /usr -ra /usr/local -s /usr/bin/dpkg "$@"
+```
+
+Create a new file `/etc/apt/apt.conf.d/90rofairy.dpkg.conf`:
+
+```
+Dir::Bin::dpkg "/usr/local/bin/rofairy.dpkg";
+```
+
+Now you can use `apt` in a read-only root filesystem just as usual.
 
 ## Installation
-Just download the script and make it executable:
+Download the script and make it executable:
 
-`curl -o rofairy https://raw.githubusercontent.com/smitsohu/rofairy/main/bin/rofairy`
+```
+DEST="/usr/local/bin/rofairy"
+curl https://raw.githubusercontent.com/smitsohu/rofairy/main/bin/rofairy | sudo tee "$DEST"
+sudo chmod 0755 "$DEST"
+```
 
 ## How does this work
 In Linux, filesystems are equipped with two read-only attributes: one associated with the mount point and the other with the superblock. The mount point attribute determines whether file modifications are allowed within a specific mount point. Conversely, the superblock attribute is a system-wide setting that impacts all mount points across all namespaces.
@@ -44,3 +56,7 @@ To enable write access to a file, both the mount point and superblock read-only 
 
 ### But I want to restore the read-only superblock
 Easy. Run `sudo mount -o remount,ro <any filesystem mountpoint>` after you are done.
+
+## Limitations
+- Processes with CAP_SYS_ADMIN and CAP_SYS_CHROOT capability in the current user namespace, along with permission to use the `setns` system call, can enter the writable mount namespace while rofairy or any of its descendants are running.
+- A set of processes, including those with CAP_SYS_PTRACE capability in the current user namespace, has permission to access the writable mount namespace by following the symbolic links `/proc/[pid]/root` or `/proc/[pid]/cwd`, or they might be able to gain access by issuing `ptrace` system calls. For detailed information, refer to the `ptrace` manual.
