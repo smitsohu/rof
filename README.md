@@ -2,6 +2,8 @@
 rofairy is a small proof-of-concept tool, to showcase how administrative tools that require write permission can be used seamlessly in a read-only root filesystem. Its primary purpose is to enable traditional package managers like `apt` to function when system directories like `/boot` or `/usr` are in a read-only state.
 
 ## Usage
+Just prefix your application with `rofairy` and specify which directories should be writable and which directories should be read-only.
+
 ```
 rofairy [options] application [application arguments|options]
 
@@ -21,8 +23,6 @@ Options:
  -s,  --sync               - sync all filesystems that
                              were remounted read-write
 ```
-
-Just prefix your application with `rofairy` and specify which directories should be writable and which directories should be read-only.
 
 ### Example: Package management in Debian/Ubuntu
 Create an executable script `/usr/local/bin/rofairy.dpkg` that wraps `dpkg`:
